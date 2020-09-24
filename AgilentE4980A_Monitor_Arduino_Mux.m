@@ -23,9 +23,7 @@ warning('off','all')
 AgilentE4980A_Init();
 % Create Arduino instance
 arduino_init();
-% Create Plot instance
-S.fh = figure( 'units','pixels','position',[200 200 600 600],'menubar','none','name','move_fig','numbertitle','off','resize','off','keypressfcn',@f_capturekeystroke,'CloseRequestFcn',@f_closecq);
-guidata(S.fh,S);
+
 
 % Define measurement parameters for the Agilent E4980A
 driver.DeviceSpecific.Function.ImpedanceType = 0;   % MODE      = Cp - D
@@ -53,73 +51,119 @@ writeDigitalPin(ardu, 'D11', 0);
 
 channel_iteration_order = [8, 0, 1, 3, 2, 6, 7, 5, 4]; % See function sw_channel_inorder_fast
 
+
+
+
 % UUUUUUtilities!!!!!
 %=====================
 enable_plot = true; % Plot all the data? Yes(500ms) : No(350ms)
 simple_filter = true; % Correct the coupling due to the multiplexer
 %=====================
 
+if enable_plot
+    get_screen_size = get(0, 'ScreenSize');
+    screen_x = get_screen_size(3);
+    screen_y = get_screen_size(4);
+    
+    screen_center = [screen_x / 2, screen_y / 2];
+    figure_side_length = 0.15 * get_screen_size(3);
+    pos_fig1 = [screen_center(1) - 1.5 * 1.4 * figure_side_length, screen_center(2) + 0.7 * figure_side_length, figure_side_length, figure_side_length];
+    
+    pos_figs = [pos_fig1; pos_fig1; pos_fig1; pos_fig1; pos_fig1; pos_fig1; pos_fig1; pos_fig1; pos_fig1];
+    
+    for fig_index = 1:9
+        if fig_index > 6
+            pos_figs(fig_index,1) = pos_figs(fig_index,1) + mod(fig_index - 1, 3) *  1.1 * figure_side_length;
+            pos_figs(fig_index,2) = pos_figs(fig_index,2) - 2 * 1.2 * figure_side_length;
+        elseif fig_index > 3
+            pos_figs(fig_index,1) = pos_figs(fig_index,1) + mod(fig_index - 1, 3) *  1.1 * figure_side_length;
+            pos_figs(fig_index,2) = pos_figs(fig_index,2) - 1.2 * figure_side_length;
+        elseif fig_index > 0
+            pos_figs(fig_index,1) = pos_figs(fig_index,1) + mod(fig_index - 1, 3) *  1.1 * figure_side_length;
+        end
+    end
+    
+    for fig_index = 1:9
+        figure_init = figure(fig_index);
+        figure_init.Position = pos_figs(fig_index, :);
+        figure_init.SelectionHighlight = 'off';
+        figure_init.MenuBar = 'none';
+        figure_init.ToolBar = 'none';
+        figure_init.Name = strcat('LCR Channel ' , num2str(fig_index));
+    end
+    
+end
+hWaitbar = waitbar(10, 'Data Points Count: 1', 'Name', 'Performing 9 Channels Test with Fake Waitbar','CreateCancelBtn','delete(gcbf)');
+if enable_plot
+    hWaitbar.Position = [40, 80, 300, 100];
+end
 while prog_run
     tic
     writeDigitalPin(ardu, 'D10', 0);
     writeDigitalPin(ardu, 'D11', 1);
     % Iterate through all the 9 channels
     for channel = 0:8
-        
-        % this is a fast way to iterate all channels. See codes.
-        sw_channel_inorder_fast(channel + 1);
-        curr_channel = channel_iteration_order(channel + 1);
-        
-        % Acquire data from the E4980A LCR Meter
-        [parameter1,~,~,~] = driver.DeviceSpecific.Result.FormattedImpedance(0,0,0,0);
-        LCR_val_prev = LCR_val;
-        LCR_val = parameter1 * data_multiplier;
-        
-        % Apply a simple filter (if enabled)
-        if simple_filter
-            if abs(LCR_val-LCR_val_prev) < 0.03 || ((data_ptr > 1) && abs(LCR_val-recorded_data(curr_channel+1, data_ptr-1) > 3))
-                [parameter1,~,~,~] = driver.DeviceSpecific.Result.FormattedImpedance(0,0,0,0);
-                LCR_val = parameter1 * data_multiplier;
-            end
-        end
-
-        % Record the data to the output matrix
-        recorded_data(curr_channel+1, data_ptr) = LCR_val;
-        
-        % Generate Plot (if enabled)
-        if enable_plot
-            % This is for dynamic upper/lower bound changing.
-            if LCR_val > LCR_val_max
-                LCR_val_max = LCR_val;
-            elseif LCR_val < LCR_val_min
-                LCR_val_min = LCR_val;
-            end
+        if prog_run
+            % this is a fast way to iterate all channels. See codes.
+            sw_channel_inorder_fast(channel + 1);
+            curr_channel = channel_iteration_order(channel + 1);
             
-            xlim([0 num_data_point]);
-            ylim([0.9*LCR_val_min 1.5*LCR_val_max]);
+            % Acquire data from the E4980A LCR Meter
+            [parameter1,~,~,~] = driver.DeviceSpecific.Result.FormattedImpedance(0,0,0,0);
+            LCR_val_prev = LCR_val;
+            LCR_val = parameter1 * data_multiplier;
             
-            % draw the 9 figures
-            figure(curr_channel + 1)
-            plot(loop_param, LCR_val, 'ro', 'MarkerSize', 3);
-            drawnow;
-            hold on;
-            
-            % check if the data filled the plot, if so, clear it
-            if loop_param >= num_data_point
-                loop_param = 0;
-                for clear_figure = 1:9
-                    figure(clear_figure)
-                    clf
+            % Apply a simple filter (if enabled)
+            if simple_filter
+                if abs(LCR_val-LCR_val_prev) < 0.05 || ((data_ptr > 1) && abs(LCR_val-recorded_data(curr_channel+1, data_ptr-1) > 3))
+                    [parameter1,~,~,~] = driver.DeviceSpecific.Result.FormattedImpedance(0,0,0,0);
+                    LCR_val = parameter1 * data_multiplier;
                 end
             end
             
-            loop_param = loop_param + 1;
+            % Record the data to the output matrix
+            recorded_data(curr_channel+1, data_ptr) = LCR_val;
+            % Generate Plot (if enabled)
+            if enable_plot
+                % This is for dynamic upper/lower bound changing.
+                if LCR_val > LCR_val_max
+                    LCR_val_max = LCR_val;
+                elseif LCR_val < LCR_val_min
+                    LCR_val_min = LCR_val;
+                end
+                
+                % draw the 9 figures
+                figure(curr_channel + 1);
+                xlim([0 num_data_point]);
+                ylim([0.9*LCR_val_min 1.5*LCR_val_max]);
+                plot(loop_param, LCR_val, 'ro', 'MarkerSize', 3);
+                drawnow;
+                hold on;
+                
+                % check if the data filled the plot, if so, clear it
+                if loop_param >= num_data_point
+                    loop_param = 0;
+                    for clear_figure = 1:9
+                        figure(clear_figure)
+                        clf
+                    end
+                end
+                loop_param = loop_param + 1;
+            end
         end
-        
     end
     data_ptr = data_ptr + 1;
     toc
+    
+    drawnow;
+    if ~ishandle(hWaitbar)
+        disp('Loop stopped by user');
+        break;
+    else
+        waitbar(data_ptr/1000,hWaitbar, ['Data Points Count: ' num2str(data_ptr)]);
+    end
 end
+close all
 
 %========================= Data Rec Section =========================
 recorded_data = recorded_data.';
@@ -170,7 +214,6 @@ if driver.Initialized
 end
 clear global
 disp('All obj closed');
-close all
 end
 
 function AgilentE4980A_Init
@@ -314,12 +357,13 @@ function  f_capturekeystroke(~,~)
 end
 function f_closecq(~,~)
 global prog_run
-selection = questdlg('Close This Figure?','Close Request Function','Yes','No','Yes');
+selection = questdlg('End Testing?','End Request Function','Yes','No','Yes');
 switch selection
     case 'Yes'
-        %S.fh.WindowSyle='normal';
-        delete(gcf)
         prog_run = 0;
+        for delete_all = 1:10
+            delete(gcf)
+        end
     case 'No'
         return
 end
